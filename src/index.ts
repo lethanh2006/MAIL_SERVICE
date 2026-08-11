@@ -8,6 +8,10 @@ dotenv.config();
 startSendOtpConsumer();
 const app = express();
 
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', service: 'mail' });
+});
+
 const swaggerSpec = swaggerJsdoc({
   definition: {
     openapi: '3.0.0',

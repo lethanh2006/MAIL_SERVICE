@@ -1,7 +1,7 @@
 import amqb from 'amqplib';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
-dotenv.config();
+dotenv.config({ path: ['../.env', '.env'] });
 
 const wait = (milliseconds: number) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -14,9 +14,9 @@ export const startSendOtpConsumer = async () => {
             connection = await amqb.connect({
                 protocol: 'amqp',
                 hostname: process.env.Rabbitmq_Host || 'localhost',
-                port: 5672,
-                username: process.env.Rabbitmq_Username || 'guest',
-                password: process.env.Rabbitmq_Password || 'guest',
+                port: Number(process.env.RABBITMQ_AMQP_HOST_PORT || process.env.Rabbitmq_Port || 5672),
+                username: process.env.RABBITMQ_USER || process.env.Rabbitmq_Username || 'guest',
+                password: process.env.RABBITMQ_PASSWORD || process.env.Rabbitmq_Password || 'guest',
             });
 
             const channel = await connection.createChannel();

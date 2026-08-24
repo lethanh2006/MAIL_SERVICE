@@ -1,8 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { toError } from '../../common/utils/error.util';
+import { appLogger } from '../../common/observability/app-logger';
 import {
   NonRetryableMessageError,
   RabbitMqService,
@@ -14,8 +14,6 @@ import { MailSenderService } from './mail-sender.service';
 
 @Injectable()
 export class OtpMailConsumer implements OnModuleInit {
-  private readonly logger = new Logger(OtpMailConsumer.name);
-
   constructor(
     private readonly configService: ConfigService,
     private readonly rabbitMqService: RabbitMqService,
@@ -53,26 +51,16 @@ export class OtpMailConsumer implements OnModuleInit {
       );
     }
 
-    try {
-      await this.mailSenderService.send(dto);
-      this.logger.log(
-        JSON.stringify({
-          event: 'mail_delivery_completed',
-          queue: message.queueName,
-          requestId: message.requestId,
-        }),
-      );
-    } catch (exception: unknown) {
-      const error = toError(exception);
-      this.logger.error(
-        JSON.stringify({
-          event: 'mail_delivery_failed',
-          queue: message.queueName,
-          requestId: message.requestId,
-          error: error.message,
-        }),
-      );
-      throw error;
-    }
+    await this.mailSenderService.send(dto);
+    appLogger.info(
+      {
+        'event.name': 'mail.delivery.completed',
+        'messaging.system': 'rabbitmq',
+        'messaging.destination.name': message.queueName,
+        'messaging.message.retry_count': message.retryCount,
+        request_id: message.requestId,
+      },
+      'Mail đã được gửi thành công',
+    );
   }
 }

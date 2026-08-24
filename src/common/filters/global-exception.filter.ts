@@ -2,78 +2,43 @@ import {
   type ArgumentsHost,
   Catch,
   type ExceptionFilter,
-  HttpException,
-  HttpStatus,
   Injectable,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
-import type { RequestContext } from '../interfaces/request-context.interface';
-import { StructuredLoggerService } from '../observability/structured-logger.service';
-import { toError } from '../utils/error.util';
-
-interface ErrorRequest {
-  method?: string;
-  originalUrl?: string;
-  url?: string;
-  requestContext?: RequestContext;
-}
+import { handleOriginHttpException } from '@nrapp/observability';
+import type { RequestWithContext } from '../interfaces/request-context.interface';
+import { appLogger } from '../observability/app-logger';
 
 @Catch()
 @Injectable()
 export class GlobalExceptionFilter implements ExceptionFilter {
-  constructor(
-    private readonly httpAdapterHost: HttpAdapterHost,
-    private readonly logger: StructuredLoggerService,
-  ) {}
+  constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const httpContext = host.switchToHttp();
-    const request = httpContext.getRequest<ErrorRequest>();
-    const error = toError(exception);
-    const statusCode =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
-    const requestContext = request.requestContext;
-    const requestId = requestContext?.requestId;
-    const details = {
-      requestId,
-      statusCode,
+    const request = httpContext.getRequest<RequestWithContext>();
+    const result = handleOriginHttpException(appLogger, exception, {
+      requestId: request.requestContext?.requestId ?? 'unknown',
       method: request.method,
-      path: request.originalUrl ?? request.url,
-      errorName: error.name,
-      message: error.message,
-      durationMs: requestContext
-        ? Number(process.hrtime.bigint() - requestContext.startedAt) / 1e6
-        : 0,
-    };
-
-    if (statusCode >= 500) {
-      this.logger.error('http_request_failed', details, error.stack);
-    } else {
-      this.logger.warn('http_request_rejected', details);
-    }
-
-    const exceptionResponse =
-      exception instanceof HttpException ? exception.getResponse() : null;
-    const responseBody =
-      exceptionResponse !== null &&
-      typeof exceptionResponse === 'object' &&
-      !Array.isArray(exceptionResponse)
-        ? { ...(exceptionResponse as Record<string, unknown>), requestId }
-        : {
-            statusCode,
-            message:
-              statusCode >= 500
-                ? 'Internal server error'
-                : (exceptionResponse ?? error.message),
-            requestId,
-          };
+      route: routeTemplate(request),
+      eventName: 'mail.http.request.failed',
+    });
 
     this.httpAdapterHost.httpAdapter.reply(
       httpContext.getResponse(),
-      responseBody,
-      statusCode,
+      result.body,
+      result.statusCode,
     );
   }
+}
+
+function routeTemplate(request: RequestWithContext): string {
+  const route: unknown = request.route;
+  const routePath = isRecord(route) ? route.path : undefined;
+  if (typeof routePath !== 'string') return 'unknown';
+  return `${request.baseUrl ?? ''}${routePath}` || '/';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

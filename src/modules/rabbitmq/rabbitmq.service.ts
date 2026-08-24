@@ -5,8 +5,15 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  createErrorId,
+  injectTraceHeaders,
+  runWithLogContext,
+  withMessageSpan,
+} from '@nrapp/observability';
 import * as amqp from 'amqplib';
 import { randomUUID } from 'node:crypto';
+import { appLogger } from '../../common/observability/app-logger';
 import { toError } from '../../common/utils/error.util';
 import { decideRetry, retryCountFrom } from './retry-policy';
 
@@ -16,7 +23,10 @@ export interface RabbitMessage {
   content: unknown;
   queueName: string;
   requestId: string;
+  retryCount: number;
 }
+
+type FailedMessageOutcome = 'retry' | 'dead-letter' | 'requeue';
 
 type MessageHandler = (message: RabbitMessage) => Promise<void>;
 
@@ -187,30 +197,70 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
     channel: amqp.ConfirmChannel,
   ): Promise<void> {
     const requestId = this.requestIdFrom(message);
-    try {
-      const content = this.parseContent(message);
-      await handler({ content, queueName, requestId });
-      channel.ack(message);
-    } catch (exception: unknown) {
-      const error = toError(exception);
-      this.logger.error(
-        JSON.stringify({
-          event: 'rabbit_message_failed',
-          queue: queueName,
-          requestId,
-          error: error.message,
+    const headers = recordFrom(message.properties.headers);
+    const retryCount = retryCountFrom(headers);
+
+    await withMessageSpan(
+      `${queueName} process`,
+      headers,
+      async (span) =>
+        runWithLogContext({ request_id: requestId }, async () => {
+          try {
+            const content = this.parseContent(message);
+            await handler({ content, queueName, requestId, retryCount });
+            channel.ack(message);
+          } catch (exception: unknown) {
+            const error = toError(exception);
+            const outcome = await this.moveFailedMessage(
+              queueName,
+              message,
+              requestId,
+              error,
+              options,
+              channel,
+            );
+
+            if (outcome === 'dead-letter') {
+              const errorId = createErrorId();
+              const errorCode =
+                error instanceof NonRetryableMessageError
+                  ? 'MESSAGE_NOT_RETRYABLE'
+                  : 'MESSAGE_RETRIES_EXHAUSTED';
+              span.setAttribute('error.id', errorId);
+              span.setAttribute('error.code', errorCode);
+              appLogger.error(
+                {
+                  'event.name': 'rabbitmq.message.dead_lettered',
+                  'error.id': errorId,
+                  'error.code': errorCode,
+                  'error.expected': false,
+                  'messaging.system': 'rabbitmq',
+                  'messaging.destination.name': queueName,
+                  'messaging.operation.type': 'process',
+                  'messaging.message.retry_count': retryCount,
+                  request_id: requestId,
+                  'exception.type': error.name,
+                  'exception.message': error.message,
+                  ...(error.stack
+                    ? { 'exception.stacktrace': error.stack }
+                    : {}),
+                },
+                'RabbitMQ message đã hết retry và được chuyển vào DLQ',
+              );
+            }
+
+            throw error;
+          }
         }),
-        error.stack,
-      );
-      await this.moveFailedMessage(
-        queueName,
-        message,
-        requestId,
-        error,
-        options,
-        channel,
-      );
-    }
+      {
+        attributes: {
+          'messaging.system': 'rabbitmq',
+          'messaging.destination.name': queueName,
+          'messaging.operation.type': 'process',
+          'messaging.message.retry_count': retryCount,
+        },
+      },
+    ).catch(() => undefined);
   }
 
   private parseContent(message: amqp.ConsumeMessage): unknown {
@@ -230,7 +280,7 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
     error: Error,
     options: RabbitSubscriptionOptions,
     channel: amqp.ConfirmChannel,
-  ): Promise<void> {
+  ): Promise<FailedMessageOutcome> {
     const decision = decideRetry(
       retryCountFrom(message.properties.headers),
       options.maxRetries,
@@ -251,37 +301,47 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
     const originalHeaders = recordFrom(message.properties.headers);
 
     try {
+      const headers = injectTraceHeaders({
+        ...originalHeaders,
+        'x-request-id': requestId,
+        'x-original-queue': queueName,
+        'x-retry-count': decision.nextRetryCount,
+      });
       channel.sendToQueue(destination, message.content, {
         persistent: true,
         contentType,
         correlationId,
-        headers: {
-          ...originalHeaders,
-          'x-request-id': requestId,
-          'x-original-queue': queueName,
-          'x-retry-count': decision.nextRetryCount,
-          'x-last-error': error.message.slice(0, 500),
-        },
+        headers,
       });
       await channel.waitForConfirms();
       channel.ack(message);
-      this.logger.warn(
-        JSON.stringify({
-          event:
-            decision.destination === 'retry'
-              ? 'rabbit_message_retry_scheduled'
-              : 'rabbit_message_dead_lettered',
-          queue: queueName,
-          destination,
-          requestId,
-          retryCount: decision.nextRetryCount,
-        }),
-      );
+      if (decision.destination === 'retry') {
+        appLogger.warn(
+          {
+            'event.name': 'rabbitmq.message.retry_scheduled',
+            'messaging.system': 'rabbitmq',
+            'messaging.destination.name': queueName,
+            'messaging.retry.destination.name': destination,
+            'messaging.message.retry_count': decision.nextRetryCount,
+            request_id: requestId,
+          },
+          'RabbitMQ message được lên lịch retry',
+        );
+        return 'retry';
+      }
+      return 'dead-letter';
     } catch (publishException: unknown) {
-      this.logger.error(
-        `Không thể chuyển message lỗi sang '${destination}': ${
-          toError(publishException).message
-        }`,
+      appLogger.warn(
+        {
+          'event.name': 'rabbitmq.message.requeue_requested',
+          'messaging.system': 'rabbitmq',
+          'messaging.destination.name': queueName,
+          'messaging.retry.destination.name': destination,
+          'messaging.message.retry_count': decision.nextRetryCount,
+          request_id: requestId,
+          reason: toError(publishException).message,
+        },
+        'Không thể chuyển message lỗi; yêu cầu broker requeue message gốc',
       );
       try {
         channel.nack(message, false, true);
@@ -292,6 +352,7 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
           }`,
         );
       }
+      return 'requeue';
     }
   }
 

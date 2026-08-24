@@ -301,19 +301,33 @@ export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
     const originalHeaders = recordFrom(message.properties.headers);
 
     try {
-      const headers = injectTraceHeaders({
-        ...originalHeaders,
-        'x-request-id': requestId,
-        'x-original-queue': queueName,
-        'x-retry-count': decision.nextRetryCount,
-      });
-      channel.sendToQueue(destination, message.content, {
-        persistent: true,
-        contentType,
-        correlationId,
-        headers,
-      });
-      await channel.waitForConfirms();
+      await withMessageSpan(
+        `${destination} publish`,
+        {},
+        async () => {
+          const headers = injectTraceHeaders({
+            ...originalHeaders,
+            'x-request-id': requestId,
+            'x-original-queue': queueName,
+            'x-retry-count': decision.nextRetryCount,
+          });
+          channel.sendToQueue(destination, message.content, {
+            persistent: true,
+            contentType,
+            correlationId,
+            headers,
+          });
+          await channel.waitForConfirms();
+        },
+        {
+          kind: 3,
+          attributes: {
+            'messaging.system': 'rabbitmq',
+            'messaging.destination.name': destination,
+            'messaging.operation.type': 'publish',
+          },
+        },
+      );
       channel.ack(message);
       if (decision.destination === 'retry') {
         appLogger.warn(

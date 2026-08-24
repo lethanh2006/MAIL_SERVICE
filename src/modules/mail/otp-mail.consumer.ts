@@ -4,8 +4,10 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { toError } from '../../common/utils/error.util';
 import {
+  NonRetryableMessageError,
   RabbitMqService,
   type RabbitMessage,
+  type RabbitSubscriptionOptions,
 } from '../rabbitmq/rabbitmq.service';
 import { SendMailMessageDto } from './dto/send-mail-message.dto';
 import { MailSenderService } from './mail-sender.service';
@@ -22,8 +24,20 @@ export class OtpMailConsumer implements OnModuleInit {
 
   async onModuleInit(): Promise<void> {
     const queueName = this.configService.getOrThrow<string>('MAIL_QUEUE');
-    await this.rabbitMqService.subscribe(queueName, (message) =>
-      this.handleMessage(message),
+    const options: RabbitSubscriptionOptions = {
+      retryQueue: this.configService.getOrThrow<string>('MAIL_RETRY_QUEUE'),
+      deadLetterQueue: this.configService.getOrThrow<string>(
+        'MAIL_DEAD_LETTER_QUEUE',
+      ),
+      maxRetries: this.configService.getOrThrow<number>('MAIL_MAX_RETRIES'),
+      retryDelayMs: this.configService.getOrThrow<number>(
+        'MAIL_RETRY_DELAY_MS',
+      ),
+    };
+    await this.rabbitMqService.subscribe(
+      queueName,
+      (message) => this.handleMessage(message),
+      options,
     );
   }
 
@@ -34,7 +48,9 @@ export class OtpMailConsumer implements OnModuleInit {
       forbidNonWhitelisted: true,
     });
     if (errors.length > 0) {
-      throw new Error('Thông điệp gửi mail không đúng định dạng');
+      throw new NonRetryableMessageError(
+        'Thông điệp gửi mail không đúng định dạng',
+      );
     }
 
     try {

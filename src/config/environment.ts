@@ -14,6 +14,10 @@ export interface MailEnvironment extends RawEnvironment {
   RABBITMQ_PASSWORD: string;
   MAIL_QUEUE: string;
   MAIL_PREFETCH: number;
+  MAIL_RETRY_QUEUE: string;
+  MAIL_DEAD_LETTER_QUEUE: string;
+  MAIL_MAX_RETRIES: number;
+  MAIL_RETRY_DELAY_MS: number;
 }
 
 export function validateEnvironment(config: RawEnvironment): MailEnvironment {
@@ -51,6 +55,25 @@ export function validateEnvironment(config: RawEnvironment): MailEnvironment {
     ),
     MAIL_QUEUE: optionalString(config.MAIL_QUEUE, 'send-otp'),
     MAIL_PREFETCH: integer(config.MAIL_PREFETCH, 5, 'MAIL_PREFETCH', 1, 100),
+    MAIL_RETRY_QUEUE: optionalString(config.MAIL_RETRY_QUEUE, 'send-otp.retry'),
+    MAIL_DEAD_LETTER_QUEUE: optionalString(
+      config.MAIL_DEAD_LETTER_QUEUE,
+      'send-otp.dlq',
+    ),
+    MAIL_MAX_RETRIES: integer(
+      config.MAIL_MAX_RETRIES,
+      5,
+      'MAIL_MAX_RETRIES',
+      0,
+      20,
+    ),
+    MAIL_RETRY_DELAY_MS: integer(
+      config.MAIL_RETRY_DELAY_MS,
+      5_000,
+      'MAIL_RETRY_DELAY_MS',
+      1_000,
+      3_600_000,
+    ),
   };
 }
 

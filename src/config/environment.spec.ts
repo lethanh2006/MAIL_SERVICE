@@ -19,6 +19,10 @@ describe('validateEnvironment', () => {
       RABBITMQ_PORT: 5672,
       MAIL_QUEUE: 'send-otp',
       MAIL_PREFETCH: 5,
+      MAIL_RETRY_QUEUE: 'send-otp.retry',
+      MAIL_DEAD_LETTER_QUEUE: 'send-otp.dlq',
+      MAIL_MAX_RETRIES: 5,
+      MAIL_RETRY_DELAY_MS: 5000,
     });
   });
 

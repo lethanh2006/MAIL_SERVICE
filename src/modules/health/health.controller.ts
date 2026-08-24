@@ -6,7 +6,7 @@ export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
   @Get()
-  getHealth(): MailHealth {
+  getHealth(): Promise<MailHealth> {
     return this.healthService.getReadiness();
   }
 
@@ -16,7 +16,7 @@ export class HealthController {
   }
 
   @Get('ready')
-  getReadiness(): MailHealth {
+  getReadiness(): Promise<MailHealth> {
     return this.healthService.getReadiness();
   }
 }

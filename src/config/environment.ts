@@ -5,6 +5,7 @@ export interface MailEnvironment extends RawEnvironment {
   SMTP_HOST: string;
   SMTP_PORT: number;
   SMTP_SECURE: boolean;
+  SMTP_CONNECTION_TIMEOUT_MS: number;
   SMTP_USER: string;
   SMTP_PASS: string;
   MAIL_FROM: string;
@@ -29,6 +30,13 @@ export function validateEnvironment(config: RawEnvironment): MailEnvironment {
     SMTP_HOST: optionalString(config.SMTP_HOST, 'smtp.gmail.com'),
     SMTP_PORT: integer(config.SMTP_PORT, 465, 'SMTP_PORT', 1, 65_535),
     SMTP_SECURE: booleanValue(config.SMTP_SECURE, true, 'SMTP_SECURE'),
+    SMTP_CONNECTION_TIMEOUT_MS: integer(
+      config.SMTP_CONNECTION_TIMEOUT_MS,
+      3_000,
+      'SMTP_CONNECTION_TIMEOUT_MS',
+      500,
+      30_000,
+    ),
     SMTP_USER: smtpUser,
     SMTP_PASS: requiredString(config, 'SMTP_PASS'),
     MAIL_FROM: optionalString(config.MAIL_FROM, smtpUser),

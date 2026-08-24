@@ -14,6 +14,7 @@ describe('validateEnvironment', () => {
       SMTP_HOST: 'smtp.gmail.com',
       SMTP_PORT: 465,
       SMTP_SECURE: true,
+      SMTP_CONNECTION_TIMEOUT_MS: 3000,
       MAIL_FROM: 'mailer@example.com',
       RABBITMQ_HOST: 'localhost',
       RABBITMQ_PORT: 5672,

@@ -4,7 +4,7 @@ import { validateEnvironment } from './config/environment';
 import { CoreModule } from './core/core.module';
 import { HealthModule } from './modules/health/health.module';
 import { MailModule } from './modules/mail/mail.module';
-import { RabbitMqModule } from './modules/rabbitmq/rabbitmq.module';
+import { RabbitMQModule } from './modules/rabbitmq/rabbitmq.module';
 
 @Module({
   imports: [
@@ -14,7 +14,7 @@ import { RabbitMqModule } from './modules/rabbitmq/rabbitmq.module';
       validate: validateEnvironment,
     }),
     CoreModule,
-    RabbitMqModule,
+    RabbitMQModule,
     MailModule,
     HealthModule,
   ],

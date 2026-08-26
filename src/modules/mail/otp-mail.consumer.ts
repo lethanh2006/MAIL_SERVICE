@@ -5,7 +5,7 @@ import { validate } from 'class-validator';
 import { appLogger } from '../../common/observability/app-logger';
 import {
   NonRetryableMessageError,
-  RabbitMqService,
+  RabbitMQService,
   type RabbitMessage,
   type RabbitSubscriptionOptions,
 } from '../rabbitmq/rabbitmq.service';
@@ -16,7 +16,7 @@ import { MailSenderService } from './mail-sender.service';
 export class OtpMailConsumer implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
-    private readonly rabbitMqService: RabbitMqService,
+    private readonly rabbitMQService: RabbitMQService,
     private readonly mailSenderService: MailSenderService,
   ) {}
 
@@ -32,7 +32,7 @@ export class OtpMailConsumer implements OnModuleInit {
         'MAIL_RETRY_DELAY_MS',
       ),
     };
-    await this.rabbitMqService.subscribe(
+    await this.rabbitMQService.subscribe(
       queueName,
       (message) => this.handleMessage(message),
       options,

@@ -1,6 +1,6 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { MailSenderService } from '../mail/mail-sender.service';
-import { RabbitMqService } from '../rabbitmq/rabbitmq.service';
+import { RabbitMQService } from '../rabbitmq/rabbitmq.service';
 
 export interface MailHealth {
   status: 'ok' | 'error';
@@ -14,7 +14,7 @@ export interface MailHealth {
 @Injectable()
 export class HealthService {
   constructor(
-    private readonly rabbitMqService: RabbitMqService,
+    private readonly rabbitMQService: RabbitMQService,
     private readonly mailSenderService: MailSenderService,
   ) {}
 
@@ -24,7 +24,7 @@ export class HealthService {
 
   async getReadiness(): Promise<MailHealth> {
     const dependencies = {
-      rabbitmq: this.rabbitMqService.isReady()
+      rabbitmq: this.rabbitMQService.isReady()
         ? ('up' as const)
         : ('down' as const),
       smtp: (await this.mailSenderService.verifyConnection())

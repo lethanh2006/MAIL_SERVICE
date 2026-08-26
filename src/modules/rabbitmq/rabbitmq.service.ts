@@ -50,8 +50,8 @@ export class NonRetryableMessageError extends Error {
 }
 
 @Injectable()
-export class RabbitMqService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(RabbitMqService.name);
+export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(RabbitMQService.name);
   private readonly subscriptions = new Map<string, RabbitSubscription>();
   private connection: amqp.ChannelModel | null = null;
   private channel: amqp.ConfirmChannel | null = null;

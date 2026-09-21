@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { appLogger } from '../../common/observability';
+import { appLogger } from '../../common/logging/logger';
 import {
   NonRetryableMessageError,
   RabbitMQService,

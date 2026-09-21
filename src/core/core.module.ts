@@ -5,24 +5,19 @@ import {
   type NestModule,
 } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
-import { GlobalExceptionFilter } from '../common/global-exception.filter';
-import {
-  StructuredLoggerService,
-  TelemetryLifecycleService,
-} from '../common/observability';
-import { RequestIdMiddleware } from '../common/request-id.middleware';
+import { GlobalExceptionFilter } from '../common/filters/global-exception.filter';
+import { LoggerLifecycleService } from '../common/logging/logger';
+import { RequestIdMiddleware } from '../common/middleware/request-id.middleware';
 
 @Global()
 @Module({
   providers: [
-    StructuredLoggerService,
-    TelemetryLifecycleService,
+    LoggerLifecycleService,
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
     },
   ],
-  exports: [StructuredLoggerService],
 })
 export class CoreModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

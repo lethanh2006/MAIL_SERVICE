@@ -1,9 +1,7 @@
 import type { NextFunction, Response } from 'express';
-import type { RequestWithContext } from './request-context';
-import {
-  REQUEST_ID_HEADER,
-  RequestIdMiddleware,
-} from './request-id.middleware';
+import type { RequestWithContext } from '../interfaces/request-context.interface';
+import { REQUEST_ID_HEADER } from '@nrapp/observability';
+import { RequestIdMiddleware } from './request-id.middleware';
 
 describe('RequestIdMiddleware', () => {
   const middleware = new RequestIdMiddleware();

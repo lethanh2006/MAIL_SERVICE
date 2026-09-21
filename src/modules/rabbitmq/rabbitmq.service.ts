@@ -7,17 +7,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   createErrorId,
-  injectTraceHeaders,
   runWithLogContext,
-  withMessageSpan,
+  SAFE_REQUEST_ID,
 } from '@nrapp/observability';
 import * as amqp from 'amqplib';
 import { randomUUID } from 'node:crypto';
-import { toError } from '../../common/error.util';
-import { appLogger } from '../../common/observability';
+import { toError } from '../../common/utils/error.util';
+import { appLogger } from '../../common/logging/logger';
 import { decideRetry, retryCountFrom } from './retry-policy';
-
-const SAFE_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 export interface RabbitMessage {
   content: unknown;
@@ -200,67 +197,50 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
     const headers = recordFrom(message.properties.headers);
     const retryCount = retryCountFrom(headers);
 
-    await withMessageSpan(
-      `${queueName} process`,
-      headers,
-      async (span) =>
-        runWithLogContext({ request_id: requestId }, async () => {
-          try {
-            const content = this.parseContent(message);
-            await handler({ content, queueName, requestId, retryCount });
-            channel.ack(message);
-          } catch (exception: unknown) {
-            const error = toError(exception);
-            const outcome = await this.moveFailedMessage(
-              queueName,
-              message,
-              requestId,
-              error,
-              options,
-              channel,
-            );
+    await runWithLogContext({ request_id: requestId }, async () => {
+      try {
+        const content = this.parseContent(message);
+        await handler({ content, queueName, requestId, retryCount });
+        channel.ack(message);
+      } catch (exception: unknown) {
+        const error = toError(exception);
+        const outcome = await this.moveFailedMessage(
+          queueName,
+          message,
+          requestId,
+          error,
+          options,
+          channel,
+        );
 
-            if (outcome === 'dead-letter') {
-              const errorId = createErrorId();
-              const errorCode =
-                error instanceof NonRetryableMessageError
-                  ? 'MESSAGE_NOT_RETRYABLE'
-                  : 'MESSAGE_RETRIES_EXHAUSTED';
-              span.setAttribute('error.id', errorId);
-              span.setAttribute('error.code', errorCode);
-              appLogger.error(
-                {
-                  'event.name': 'rabbitmq.message.dead_lettered',
-                  'error.id': errorId,
-                  'error.code': errorCode,
-                  'error.expected': false,
-                  'messaging.system': 'rabbitmq',
-                  'messaging.destination.name': queueName,
-                  'messaging.operation.type': 'process',
-                  'messaging.message.retry_count': retryCount,
-                  request_id: requestId,
-                  'exception.type': error.name,
-                  'exception.message': error.message,
-                  ...(error.stack
-                    ? { 'exception.stacktrace': error.stack }
-                    : {}),
-                },
-                'RabbitMQ message đã hết retry và được chuyển vào DLQ',
-              );
-            }
+        if (outcome === 'dead-letter') {
+          const errorId = createErrorId();
+          const errorCode =
+            error instanceof NonRetryableMessageError
+              ? 'MESSAGE_NOT_RETRYABLE'
+              : 'MESSAGE_RETRIES_EXHAUSTED';
+          appLogger.error(
+            {
+              'event.name': 'rabbitmq.message.dead_lettered',
+              'error.id': errorId,
+              'error.code': errorCode,
+              'error.expected': false,
+              'messaging.system': 'rabbitmq',
+              'messaging.destination.name': queueName,
+              'messaging.operation.type': 'process',
+              'messaging.message.retry_count': retryCount,
+              request_id: requestId,
+              'exception.type': error.name,
+              'exception.message': error.message,
+              ...(error.stack ? { 'exception.stacktrace': error.stack } : {}),
+            },
+            'RabbitMQ message đã hết retry và được chuyển vào DLQ',
+          );
+        }
 
-            throw error;
-          }
-        }),
-      {
-        attributes: {
-          'messaging.system': 'rabbitmq',
-          'messaging.destination.name': queueName,
-          'messaging.operation.type': 'process',
-          'messaging.message.retry_count': retryCount,
-        },
-      },
-    ).catch(() => undefined);
+        throw error;
+      }
+    }).catch(() => undefined);
   }
 
   private parseContent(message: amqp.ConsumeMessage): unknown {
@@ -301,33 +281,19 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
     const originalHeaders = recordFrom(message.properties.headers);
 
     try {
-      await withMessageSpan(
-        `${destination} publish`,
-        {},
-        async () => {
-          const headers = injectTraceHeaders({
-            ...originalHeaders,
-            'x-request-id': requestId,
-            'x-original-queue': queueName,
-            'x-retry-count': decision.nextRetryCount,
-          });
-          channel.sendToQueue(destination, message.content, {
-            persistent: true,
-            contentType,
-            correlationId,
-            headers,
-          });
-          await channel.waitForConfirms();
-        },
-        {
-          kind: 3,
-          attributes: {
-            'messaging.system': 'rabbitmq',
-            'messaging.destination.name': destination,
-            'messaging.operation.type': 'publish',
-          },
-        },
-      );
+      const headers = {
+        ...originalHeaders,
+        'x-request-id': requestId,
+        'x-original-queue': queueName,
+        'x-retry-count': decision.nextRetryCount,
+      };
+      channel.sendToQueue(destination, message.content, {
+        persistent: true,
+        contentType,
+        correlationId,
+        headers,
+      });
+      await channel.waitForConfirms();
       channel.ack(message);
       if (decision.destination === 'retry') {
         appLogger.warn(

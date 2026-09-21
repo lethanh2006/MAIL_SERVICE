@@ -1,5 +1,5 @@
 import type { NextFunction, Response } from 'express';
-import type { RequestWithContext } from '../interfaces/request-context.interface';
+import type { RequestWithContext } from './request-context';
 import {
   REQUEST_ID_HEADER,
   RequestIdMiddleware,

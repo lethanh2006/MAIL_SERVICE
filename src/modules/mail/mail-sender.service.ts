@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { toError } from '../../common/utils/error.util';
+import { toError } from '../../common/error.util';
 import type { SendMailMessageDto } from './dto/send-mail-message.dto';
 
 @Injectable()

@@ -13,8 +13,8 @@ import {
 } from '@nrapp/observability';
 import * as amqp from 'amqplib';
 import { randomUUID } from 'node:crypto';
-import { appLogger } from '../../common/observability/app-logger';
-import { toError } from '../../common/utils/error.util';
+import { toError } from '../../common/error.util';
+import { appLogger } from '../../common/observability';
 import { decideRetry, retryCountFrom } from './retry-policy';
 
 const SAFE_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
